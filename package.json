@@ -1,0 +1,44 @@
+{
+	"name": "tmln",
+	"version": "1.0.0",
+	"description": "High-performance, lightweight, in-memory timeline data structure to manage items on dates and within ranges.",
+	"type": "module",
+	"main": "./dist/index.js",
+	"module": "./dist/index.js",
+	"packageManager": "bun@1.2.19",
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1",
+		"build": "bun .conveyer.js",
+		"postbuild": "tsc -p ."
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/nesvet/timeline.git"
+	},
+	"keywords": [
+		"timeline",
+		"date",
+		"range",
+		"schedule",
+		"calendar",
+		"events",
+		"gantt",
+		"chronology",
+		"performance",
+		"fast",
+		"data structure",
+		"lightweight",
+		"in-memory",
+		"typescript"
+	],
+	"author": "Eugene Nesvetaev <dev@nesvet.dev> (https://nesvet.dev/)",
+	"license": "MIT",
+	"dependencies": {
+		"avl": "^2.0.0"
+	},
+	"devDependencies": {
+		"@nesvet/conveyer": "^2.6.4",
+		"@nesvet/eslint-config": "^2.1.2",
+		"typescript": "^5.9.2"
+	}
+}
