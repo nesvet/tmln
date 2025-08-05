@@ -1,6 +1,6 @@
 {
 	"name": "tmln",
-	"version": "1.0.1",
+	"version": "1.0.2",
 	"description": "High-performance, lightweight, in-memory timeline data structure to manage items on dates and within ranges.",
 	"type": "module",
 	"main": "./dist/index.js",
