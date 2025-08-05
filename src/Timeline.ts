@@ -607,7 +607,7 @@ export class Timeline<I extends Item = Item> extends BaseTimeline<I, TimelineEve
 		for (const at of this._storage.keys())
 			tempEventBuffer.push({ type: "date", at });
 		
-		tempEventBuffer.push({ type: "bounds" });
+		tempEventBuffer.push({ type: "bounds", startAt: null, endAt: null });
 		
 		this._clearBase();
 		this.#itemDateArray.length = 0;

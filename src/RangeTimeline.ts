@@ -860,7 +860,7 @@ export class RangeTimeline<I extends Item = Item> extends BaseTimeline<I, RangeT
 		for (const at of this._storage.keys())
 			tempEventBuffer.push({ type: "date", at });
 		
-		tempEventBuffer.push({ type: "bounds" });
+		tempEventBuffer.push({ type: "bounds", startAt: null, endAt: null });
 		
 		this._clearBase();
 		this.#itemRangeArray.length = 0;

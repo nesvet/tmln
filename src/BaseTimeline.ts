@@ -220,7 +220,7 @@ export abstract class BaseTimeline<I extends Item, E extends RangeTimelineEvent<
 			this.#startAt = startAt;
 			this.#endAt = endAt;
 			
-			this._emit({ type: "bounds" } as E);
+			this._emit({ type: "bounds", startAt, endAt } as E);
 		}
 		
 	}

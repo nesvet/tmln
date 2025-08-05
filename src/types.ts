@@ -94,6 +94,16 @@ export type BoundsChangeEvent = {
 	 * The type of the event.
 	 */
 	type: "bounds";
+	
+	/**
+	 * The timeline's start boundary.
+	 */
+	startAt: Midnight | null;
+	
+	/**
+	 * The timeline's end boundary.
+	 */
+	endAt: Midnight | null;
 };
 
 /**

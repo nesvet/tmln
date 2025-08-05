@@ -156,7 +156,7 @@ Subscribe to changes using `on(eventType, ...args)`:
 
 | `eventType` | Additional Arguments                  | Event Payload (`event`)                                 |
 | ----------- | ------------------------------------- | ------------------------------------------------------- |
-| `"bounds"`  | `listener`                            | `{ type: "bounds" }`                                    |
+| `"bounds"`  | `listener`                            | `{ type: "bounds", startAt: Midnight \| null, endAt: Midnight \| null }` |
 | `"date"`    | `date`, `listener`                    | `{ type: "date", at: Midnight }`                        |
 | `"item"`    | `item`, `listener`                    | **`Timeline`**:<br />`{ type: "item", item: Item, at: Midnight, prevAt: Midnight \| null }` <br /><br />**`RangeTimeline`**:<br />`{ type: "item", item: Item, startAt: Midnight, endAt: Midnight, prevStartAt: Midnight \| null, prevEndAt: Midnight \| null }` |
 
