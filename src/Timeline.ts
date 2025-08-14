@@ -1,13 +1,15 @@
 import {
 	BaseTimeline,
 	EMPTY_ARRAY,
-	tempEventBuffer,
-	tempItemBuffer
+	ONE_DAY,
+	tempEventBuffer
 } from "./BaseTimeline";
 import type {
 	BatchResult,
 	BoundsChangeEvent,
 	DateChangeEvent,
+	Day,
+	DayOptions,
 	EventType,
 	GetOptions,
 	Item,
@@ -184,7 +186,7 @@ export class Timeline<I extends Item = Item> extends BaseTimeline<I, TimelineEve
 	 * @returns `true` if the item was newly added, `false` if it was updated or not added.
 	 */
 	add(item: I): boolean {
-		if (!item || !Object.hasOwn(item, this.#atPropName))
+		if (!item || item[this.#atPropName] === undefined)
 			return false;
 		
 		const at = this._toTs(item[this.#atPropName] as RawDate);
@@ -221,43 +223,131 @@ export class Timeline<I extends Item = Item> extends BaseTimeline<I, TimelineEve
 		
 		tempEventBuffer.length = 0;
 		
+		const addMap = new Map<Midnight, I[]>();
+		const removeMap = new Map<Midnight, I[]>();
+		
 		let added = 0;
 		let updated = 0;
 		let removed = 0;
 		
 		for (const item of items) {
-			if (!item || !Object.hasOwn(item, this.#atPropName))
+			if (!item || item[this.#atPropName] === undefined)
 				continue;
 			
 			const at = this._toTs(item[this.#atPropName] as RawDate);
+			const existingIndex = this.#itemIndexMap.get(item);
+			
+			const prevAt = existingIndex === undefined ? null : this.#itemDateArray[existingIndex][1];
 			
 			if (at === null) {
-				if (this.has(item)) {
-					const { isRemoved, events } = this.#removeItem(item);
+				if (prevAt !== null) {
+					removeMap.get(prevAt)?.push(item) ??
+					removeMap.set(prevAt, [ item ]);
 					
-					if (isRemoved) {
-						removed++;
-						tempEventBuffer.push(...events);
+					const lastItemIndex = this.#itemDateArray.length - 1;
+					
+					if (existingIndex !== lastItemIndex) {
+						const lastItem = this.#itemDateArray[lastItemIndex];
+						
+						this.#itemDateArray[existingIndex!] = lastItem;
+						this.#itemIndexMap.set(lastItem[0], existingIndex!);
 					}
+					
+					this.#itemDateArray.pop();
+					this.#itemIndexMap.delete(item);
+					this._itemListeners.delete(item);
+					
+					removed++;
+					tempEventBuffer.push({ type: "item", item, at: prevAt, prevAt });
 				}
 				
 				continue;
 			}
 			
-			const { isAdded, isUpdated, events } = this.#addItem(item, at);
+			if (prevAt === at)
+				continue;
 			
-			if (isAdded)
+			if (prevAt === null) {
+				addMap.get(at)?.push(item) ??
+				addMap.set(at, [ item ]);
+				
+				const newIndex = this.#itemDateArray.length;
+				
+				this.#itemDateArray.push([ item, at ]);
+				this.#itemIndexMap.set(item, newIndex);
+				
 				added++;
-			else if (isUpdated)
+			} else {
+				removeMap.get(prevAt)?.push(item) ??
+				removeMap.set(prevAt, [ item ]);
+				
+				addMap.get(at)?.push(item) ??
+				addMap.set(at, [ item ]);
+				
+				this.#itemDateArray[existingIndex!][1] = at;
+				
 				updated++;
+			}
 			
-			tempEventBuffer.push(...events);
+			tempEventBuffer.push({ type: "item", item, at, prevAt });
 		}
 		
-		if (tempEventBuffer.length > 0) {
-			this._updateBounds();
-			this._emit(...tempEventBuffer);
+		if (added === 0 && updated === 0 && removed === 0)
+			return { added, updated, removed };
+		
+		const allAffectedDates = new Set([ ...addMap.keys(), ...removeMap.keys() ]);
+		
+		for (const at of allAffectedDates) {
+			let dayStorage = this._storage.get(at);
+			const toRemove = removeMap.get(at);
+			
+			if (dayStorage && toRemove) {
+				const toRemoveSet = new Set(toRemove);
+				let writeIndex = 0;
+				
+				for (let readIndex = 0; readIndex < dayStorage.count; readIndex++)
+					if (!toRemoveSet.has(dayStorage.items[readIndex])) {
+						if (writeIndex !== readIndex)
+							dayStorage.items[writeIndex] = dayStorage.items[readIndex];
+						
+						writeIndex++;
+					}
+				
+				dayStorage.count = writeIndex;
+			}
+			
+			const toAdd = addMap.get(at);
+			
+			if (toAdd) {
+				if (!dayStorage) {
+					dayStorage = { items: [], count: 0 };
+					
+					this._storage.set(at, dayStorage);
+					this._dateTree.insert(at);
+				}
+				
+				for (const item of toAdd) {
+					if (dayStorage.count >= dayStorage.items.length)
+						dayStorage.items.length = Math.max(dayStorage.items.length << 1, 8);
+					
+					dayStorage.items[dayStorage.count++] = item;
+				}
+			}
+			
+			if (dayStorage) {
+				if (dayStorage.count === 0) {
+					this._storage.delete(at);
+					this._dateTree.remove(at);
+					this._dateListeners.delete(at);
+				} else
+					this._cleanupStorageNode(dayStorage);
+				
+				tempEventBuffer.push({ type: "date", at });
+			}
 		}
+		
+		this._updateBounds();
+		this._emit(...tempEventBuffer);
 		
 		return { added, updated, removed };
 	}
@@ -280,6 +370,21 @@ export class Timeline<I extends Item = Item> extends BaseTimeline<I, TimelineEve
 	 */
 	has(item: I): boolean {
 		return this.#itemIndexMap.has(item);
+	}
+	
+	/**
+	 * Finds the first item in the timeline that satisfies the provided testing function.
+	 * @param predicate A function to execute for each item. It should return `true` if the item is a match.
+	 * @returns The first item that satisfies the predicate, or `undefined` if no such item is found.
+	 */
+	find(predicate: (item: I) => boolean): I | undefined {
+		
+		for (let i = 0; i < this.#itemDateArray.length; i++) {
+			const [ item ] = this.#itemDateArray[i];
+			
+			if (predicate(item))
+				return item;
+		}
 	}
 	
 	/**
@@ -308,7 +413,7 @@ export class Timeline<I extends Item = Item> extends BaseTimeline<I, TimelineEve
 			const dayStorage = this._storage.get(at);
 			
 			if (!dayStorage || dayStorage.count === 0)
-				return EMPTY_ARRAY as I[];
+				return [];
 			
 			const items = dayStorage.items.slice(0, dayStorage.count);
 			
@@ -322,18 +427,16 @@ export class Timeline<I extends Item = Item> extends BaseTimeline<I, TimelineEve
 		const endAt = this._resolveTs(end);
 		
 		if (startAt > endAt)
-			return EMPTY_ARRAY as I[];
+			return [];
 		
-		tempItemBuffer.length = 0;
-		
+		const result: I[] = [];
 		let skipped = 0;
 		
-		this._dateTree.range(startAt, endAt, node => {
+		for (const at of this._rangeKeys(startAt, endAt)) {
+			if (result.length >= limit)
+				break;
 			
-			if (tempItemBuffer.length >= limit)
-				return false;
-			
-			const { items, count } = this._storage.get(node.key)!;
+			const { items, count } = this._storage.get(at)!;
 			
 			for (let i = 0; i < count; i++) {
 				if (skipped < offset) {
@@ -342,19 +445,17 @@ export class Timeline<I extends Item = Item> extends BaseTimeline<I, TimelineEve
 					continue;
 				}
 				
-				if (tempItemBuffer.length >= limit)
+				if (result.length >= limit)
 					break;
 				
-				tempItemBuffer.push(items[i]);
+				result.push(items[i]);
 			}
-			
-			return tempItemBuffer.length < limit;
-		});
+		}
 		
-		if (sorted && tempItemBuffer.length > 1)
-			tempItemBuffer.sort((a, b) => this.#itemDateArray[this.#itemIndexMap.get(a)!][1] - this.#itemDateArray[this.#itemIndexMap.get(b)!][1]);
+		if (sorted && result.length > 1)
+			result.sort((a, b) => this.#itemDateArray[this.#itemIndexMap.get(a)!][1] - this.#itemDateArray[this.#itemIndexMap.get(b)!][1]);
 		
-		return tempItemBuffer.slice();
+		return result;
 	}
 	
 	/**
@@ -363,6 +464,226 @@ export class Timeline<I extends Item = Item> extends BaseTimeline<I, TimelineEve
 	 */
 	getAll(): I[] {
 		return this.#itemDateArray.map(([ item ]) => item);
+	}
+	
+	/**
+	 * Retrieves a Day object `{ at, items }` for a specific date.
+	 * @param date The date to retrieve.
+	 * @returns A Day object, or `null` if there are no items on that date.
+	 * @throws {DateError} if the date is invalid.
+	 */
+	getDay(date: RawDate): Day<I> | null {
+		const at = this._resolveTs(date);
+		
+		const dayStorage = this._storage.get(at);
+		
+		if (!dayStorage || dayStorage.count === 0)
+			return null;
+		
+		return {
+			at,
+			items: dayStorage.items.slice(0, dayStorage.count)
+		};
+	}
+	
+	/**
+	 * Retrieves all Day objects that contain items for a specific date.
+	 * @param start The date to retrieve.
+	 * @param options Configuration for the retrieval.
+	 * @returns An array of Day objects.
+	 * @throws {DateError} if the date is invalid.
+	 */
+	getDays(start: RawDate, options?: DayOptions): Day<I>[];
+	
+	/**
+	 * Retrieves all Day objects that contain items within a given date range.
+	 * @param start The start of the date range.
+	 * @param end The end of the date range.
+	 * @param options Configuration for the retrieval.
+	 * @returns An array of Day objects.
+	 * @throws {DateError} if the start or end date is invalid.
+	 */
+	getDays(start: RawDate, end: RawDate, options?: DayOptions): Day<I>[];
+	
+	getDays(start: RawDate, endOrOptions?: DayOptions | RawDate, options?: DayOptions): Day<I>[] {
+		const { end, includeEmpty, limit, offset } = this._parseDayArgs(endOrOptions, options);
+		
+		const range = this._resolveTsRange(start, end);
+		
+		if (!range)
+			return [];
+		
+		const { startAt, endAt } = range;
+		
+		if (includeEmpty)
+			return this.#getDaysWithEmpty(startAt, endAt, limit, offset);
+		
+		return this.#getDaysExistingOnly(startAt, endAt, limit, offset);
+	}
+	
+	#getDaysWithEmpty(startAt: Midnight, endAt: Midnight, limit: number, offset: number): Day<I>[] {
+		const existingDates = this._collectExistingDates(startAt, endAt);
+		const { actualLimit } = this._calculateDayLimits(startAt, endAt, limit, offset);
+		
+		if (actualLimit <= 0)
+			return [];
+		
+		const result: Day<I>[] = Array.from({ length: actualLimit });
+		
+		let existingIndex = 0;
+		let resultIndex = 0;
+		let skipCount = 0;
+		
+		for (let currentAt = startAt; currentAt <= endAt && resultIndex < actualLimit; currentAt += ONE_DAY) {
+			if (skipCount < offset) {
+				skipCount++;
+				
+				while (existingIndex < existingDates.length && existingDates[existingIndex] < currentAt)
+					existingIndex++;
+				
+				continue;
+			}
+			
+			if (existingIndex < existingDates.length && existingDates[existingIndex] === currentAt) {
+				const dayStorage = this._storage.get(currentAt)!;
+				
+				result[resultIndex] = {
+					at: currentAt,
+					items: dayStorage.items.slice(0, dayStorage.count)
+				};
+				
+				existingIndex++;
+			} else
+				result[resultIndex] = { at: currentAt, items: [] };
+			
+			resultIndex++;
+		}
+		
+		if (resultIndex < result.length)
+			result.length = resultIndex;
+		
+		return result;
+	}
+	
+	#getDaysExistingOnly(startAt: Midnight, endAt: Midnight, limit: number, offset: number): Day<I>[] {
+		
+		const result: Day<I>[] = [];
+		let skippedCount = 0;
+		
+		for (const at of this._rangeKeys(startAt, endAt)) {
+			if (result.length >= limit)
+				break;
+			
+			if (skippedCount < offset) {
+				skippedCount++;
+				
+				continue;
+			}
+			
+			const dayStorage = this._storage.get(at)!;
+			
+			result.push({
+				at,
+				items: dayStorage.items.slice(0, dayStorage.count)
+			});
+		}
+		
+		return result;
+	}
+	
+	/**
+	 * Returns a memory-efficient iterator for Day objects on a specific date.
+	 * @param start The date to retrieve.
+	 * @param options Configuration for the retrieval.
+	 * @returns An iterator for Day objects.
+	 * @throws {DateError} if the date is invalid.
+	 */
+	iterateDays(start: RawDate, options?: DayOptions): IterableIterator<Day<I>>;
+	
+	/**
+	 * Returns a memory-efficient iterator for Day objects within a given date range.
+	 * @param start The start of the date range.
+	 * @param end The end of the date range.
+	 * @param options Configuration for the retrieval.
+	 * @returns An iterator for Day objects.
+	 * @throws {DateError} if the start or end date is invalid.
+	 */
+	iterateDays(start: RawDate, end: RawDate, options?: DayOptions): IterableIterator<Day<I>>;
+	
+	*iterateDays(start: RawDate, endOrOptions?: DayOptions | RawDate, options?: DayOptions): IterableIterator<Day<I>> {
+		const { end, includeEmpty, limit, offset } = this._parseDayArgs(endOrOptions, options);
+		
+		const range = this._resolveTsRange(start, end);
+		
+		if (!range)
+			return;
+		
+		const { startAt, endAt } = range;
+		
+		yield* includeEmpty ?
+			this.#iterateDaysWithEmpty(startAt, endAt, limit, offset) :
+			this.#iterateDaysExistingOnly(startAt, endAt, limit, offset);
+	}
+	
+	*#iterateDaysWithEmpty(startAt: Midnight, endAt: Midnight, limit: number, offset: number): IterableIterator<Day<I>> {
+		const existingDates = this._collectExistingDates(startAt, endAt);
+		
+		let existingIndex = 0;
+		let yieldedCount = 0;
+		let skipCount = 0;
+		
+		for (let currentAt = startAt; currentAt <= endAt && yieldedCount < limit; currentAt += ONE_DAY) {
+			if (skipCount < offset) {
+				skipCount++;
+				
+				while (existingIndex < existingDates.length && existingDates[existingIndex] < currentAt)
+					existingIndex++;
+				
+				continue;
+			}
+			
+			if (existingIndex < existingDates.length && existingDates[existingIndex] === currentAt) {
+				const dayStorage = this._storage.get(currentAt)!;
+				
+				yield {
+					at: currentAt,
+					items: dayStorage.items.slice(0, dayStorage.count)
+				};
+				
+				existingIndex++;
+			} else
+				yield { at: currentAt, items: [] };
+			
+			yieldedCount++;
+		}
+		
+	}
+	
+	*#iterateDaysExistingOnly(startAt: Midnight, endAt: Midnight, limit: number, offset: number): IterableIterator<Day<I>> {
+		
+		let yieldedCount = 0;
+		let skipCount = 0;
+		
+		for (const at of this._rangeKeys(startAt, endAt)) {
+			if (skipCount < offset) {
+				skipCount++;
+				
+				continue;
+			}
+			
+			if (yieldedCount >= limit)
+				break;
+			
+			const dayStorage = this._storage.get(at)!;
+			
+			yield {
+				at,
+				items: dayStorage.items.slice(0, dayStorage.count)
+			};
+			
+			yieldedCount++;
+		}
+		
 	}
 	
 	/**

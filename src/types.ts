@@ -81,6 +81,118 @@ export type TimelineOptions = {
 };
 
 /**
+ * Options for retrieving Day objects from the timeline.
+ */
+export type DayOptions = {
+	
+	/**
+	 * The end date of the range to retrieve. If omitted, retrieves only the start date.
+	 */
+	end?: RawDate;
+	
+	/**
+	 * If `true`, the result will include days that have no items.
+	 * @default false
+	 */
+	includeEmpty?: boolean;
+	
+	/**
+	 * The maximum number of days to return.
+	 */
+	limit?: number;
+	
+	/**
+	 * The number of days to skip from the beginning of the result set, for pagination.
+	 */
+	offset?: number;
+};
+
+/**
+ * Extended Day retrieval options.
+ */
+export type RangeDayOptions = DayOptions & {
+	
+	/**
+	 * If `true`, ensures that the `items` array for each day contains only unique items.
+	 * This is useful in `RangeTimeline` where the same item can span multiple days.
+	 * @default false
+	 */
+	uniqueOnly?: boolean;
+};
+
+/**
+ * Options for retrieving items with their ranges.
+ */
+export type RangeOptions = {
+	
+	/**
+	 * The end date of the range to query. If omitted, queries only the start date.
+	 */
+	end?: RawDate;
+	
+	/**
+	 * The maximum number of item ranges to return.
+	 */
+	limit?: number;
+	
+	/**
+	 * The number of item ranges to skip from the beginning, for pagination.
+	 */
+	offset?: number;
+};
+
+/**
+ * Represents a single day in the timeline, containing its timestamp and all associated items.
+ */
+export type Day<I extends Item> = {
+	
+	/**
+	 * The midnight timestamp of the day.
+	 */
+	at: Midnight;
+	
+	/**
+	 * An array of items associated with this day.
+	 */
+	items: I[];
+};
+
+/**
+ * A single item with its own range and intersection with a given date range.
+ */
+export type Range<I extends Item> = {
+	
+	/**
+	 * The item itself.
+	 */
+	item: I;
+	
+	/**
+	 * The full date range of the item as stored in the timeline.
+	 */
+	range: ItemRange;
+	
+	/**
+	 * The portion of the item's range that intersects with the query range.
+	 */
+	intersection: ItemRange;
+};
+
+export type ParsedDayArgs = {
+	end: RawDate | undefined;
+	includeEmpty: boolean;
+	limit: number;
+	offset: number;
+	uniqueOnly?: boolean;
+};
+
+export type ParsedRangeOptions = {
+	end: RawDate | undefined;
+	limit: number;
+	offset: number;
+};
+
+/**
  * Defines the types of events that can be emitted by a timeline.
  */
 export type EventType = "bounds" | "date" | "item";

@@ -2,11 +2,15 @@ import { AVLTree } from "avl";
 import type {
 	BatchResult,
 	CacheOptions,
+	Day,
+	DayOptions,
 	EventType,
 	Item,
 	Listener,
 	ListenerConfig,
 	Midnight,
+	ParsedDayArgs,
+	RangeDayOptions,
 	RangeTimelineEvent,
 	RawDate,
 	StorageNode,
@@ -19,9 +23,12 @@ import type {
 /* eslint-disable @typescript-eslint/no-explicit-any, no-bitwise */
 
 
+export const ONE_DAY = 86_400_000;
+
+
 export const EMPTY_ARRAY: any[] = [];
 export const tempEventBuffer: any[] = [];
-export const tempItemBuffer: any[] = [];
+
 
 /**
  * Custom error thrown for invalid date inputs.
@@ -51,8 +58,10 @@ export abstract class BaseTimeline<I extends Item, E extends RangeTimelineEvent<
 		
 	}
 	
+	#comparator = (a: Midnight, b: Midnight) => a - b;
+	
 	protected _storage = new Map<Midnight, StorageNode<I>>();
-	protected _dateTree = new AVLTree<Midnight>((a, b) => a - b);
+	protected _dateTree = new AVLTree<Midnight>(this.#comparator);
 	protected _listeners: { [key in EventType]?: ListenerConfig<I>[] } = {};
 	protected _dateListeners = new Map<Midnight, ListenerConfig<I>[]>();
 	protected _itemListeners = new Map<I, ListenerConfig<I>[]>();
@@ -121,6 +130,81 @@ export abstract class BaseTimeline<I extends Item, E extends RangeTimelineEvent<
 			throw new DateError(rawDate);
 		
 		return at;
+	}
+	
+	protected _resolveTsRange(start: RawDate, end?: RawDate) {
+		const startAt = this._resolveTs(start);
+		const endAt = end === undefined ? this.#endAt : this._resolveTs(end);
+		
+		if (endAt === null || startAt > endAt)
+			return null;
+		
+		return { startAt, endAt };
+	}
+	
+	protected _parseDayArgs(endOrOptions?: DayOptions | RangeDayOptions | RawDate, options?: DayOptions | RangeDayOptions): ParsedDayArgs {
+		return (endOrOptions && typeof endOrOptions === "object" && !(endOrOptions instanceof Date)) ?
+			{
+				end: endOrOptions.end,
+				includeEmpty: endOrOptions.includeEmpty === true,
+				limit: endOrOptions.limit ?? Infinity,
+				offset: endOrOptions.offset ?? 0,
+				uniqueOnly: (endOrOptions as RangeDayOptions).uniqueOnly
+			} :
+			{
+				end: endOrOptions as RawDate | undefined,
+				includeEmpty: options?.includeEmpty === true,
+				limit: options?.limit ?? Infinity,
+				offset: options?.offset ?? 0,
+				uniqueOnly: (options as RangeDayOptions)?.uniqueOnly
+			};
+	}
+	
+	private _findCeilingNode(key: Midnight): ReturnType<typeof this._dateTree.find> {
+		
+		let currentNode = this._dateTree.root;
+		let ceilingNode = null;
+		
+		while (currentNode) {
+			const order = this.#comparator(key, currentNode.key);
+			
+			if (order === 0)
+				return currentNode;
+			
+			if (order < 0) {
+				ceilingNode = currentNode;
+				currentNode = currentNode.left;
+			} else
+				currentNode = currentNode.right;
+		}
+		
+		return ceilingNode;
+	}
+	
+	protected *_rangeKeys(startKey: Midnight, endKey: Midnight): IterableIterator<Midnight> {
+		if (startKey > endKey)
+			return;
+		
+		let currentNode = this._findCeilingNode(startKey);
+		
+		while (currentNode && this.#comparator(currentNode.key, endKey) <= 0) {
+			yield currentNode.key;
+			
+			currentNode = this._dateTree.next(currentNode);
+		}
+		
+	}
+	
+	protected _collectExistingDates(startAt: Midnight, endAt: Midnight): Midnight[] {
+		return [ ...this._rangeKeys(startAt, endAt) ];
+	}
+	
+	protected _calculateDayLimits(startAt: Midnight, endAt: Midnight, limit: number, offset: number) {
+		const dayCount = Math.floor((endAt - startAt) / ONE_DAY) + 1;
+		
+		const actualLimit = Math.min(dayCount - offset, limit);
+		
+		return { dayCount, actualLimit };
 	}
 	
 	protected _addListener(
@@ -231,17 +315,6 @@ export abstract class BaseTimeline<I extends Item, E extends RangeTimelineEvent<
 		
 	}
 	
-	protected *_rangeKeys(startKey: Midnight, endKey: Midnight): IterableIterator<Midnight> {
-		if (startKey > endKey)
-			return;
-		
-		tempItemBuffer.length = 0;
-		
-		this._dateTree.range(startKey, endKey, node => { tempItemBuffer.push(node.key); });
-		
-		yield* tempItemBuffer;
-	}
-	
 	protected _clearBase(): void {
 		
 		this._storage.clear();
@@ -290,6 +363,21 @@ export abstract class BaseTimeline<I extends Item, E extends RangeTimelineEvent<
 	abstract has(item: I): boolean;
 	
 	/**
+	 * Finds the first item in the timeline that satisfies the provided testing function.
+	 * @param predicate A function to execute for each item. It should return `true` if the item is a match.
+	 * @returns The first item that satisfies the predicate, or `undefined` if no such item is found.
+	 */
+	abstract find(predicate: (item: I) => boolean): I | undefined;
+	
+	/**
+	 * Retrieves a Day object `{ at, items }` for a specific date.
+	 * @param date The date to retrieve.
+	 * @returns A Day object, or `null` if there are no items on that date.
+	 * @throws {DateError} if the date is invalid.
+	 */
+	abstract getDay(date: RawDate): Day<I> | null;
+	
+	/**
 	 * Deletes an item from the timeline.
 	 * @returns `true` if the item was successfully deleted, `false` otherwise.
 	 */
@@ -333,32 +421,98 @@ export abstract class BaseTimeline<I extends Item, E extends RangeTimelineEvent<
 	}
 	
 	/**
+	 * Checks if the timeline is empty.
+	 * @returns `true` if the timeline contains no items, `false` otherwise.
+	 */
+	isEmpty(): boolean {
+		return this._dateTree.size === 0;
+	}
+	
+	/**
+	 * Finds the closest Day with items relative to a given date.
+	 * @param date The date to search from.
+	 * @param direction The direction to search: 'before', 'after', or 'either' (closest). Defaults to 'either'.
+	 * @returns A Day object `{ at, items }` for the closest date, or `null` if the timeline is empty.
+	 * @throws {DateError} if the date is invalid.
+	 */
+	getClosestDay(date: RawDate, direction: "after" | "before" | "either" = "either"): Day<I> | null {
+		
+		if (this.isEmpty())
+			return null;
+		
+		const at = this._resolveTs(date);
+		
+		const existingNode = this._dateTree.find(at);
+		
+		let floorNode: ReturnType<typeof this._dateTree.find>;
+		let ceilNode: ReturnType<typeof this._dateTree.find>;
+		
+		if (existingNode)
+			floorNode = ceilNode = existingNode;
+		else {
+			this._dateTree.insert(at);
+			
+			const tempNode = this._dateTree.find(at)!;
+			
+			floorNode = this._dateTree.prev(tempNode);
+			ceilNode = this._dateTree.next(tempNode);
+			
+			this._dateTree.remove(at);
+		}
+		
+		let closestNode: typeof floorNode | null = null;
+		
+		switch (direction) {
+			case "before":
+				closestNode = floorNode;
+				break;
+			
+			case "after":
+				closestNode = ceilNode;
+				break;
+			
+			case "either":
+				if (floorNode && ceilNode)
+					closestNode = (at - floorNode.key) <= (ceilNode.key - at) ? floorNode : ceilNode;
+				else
+					closestNode = floorNode ?? ceilNode;
+				break;
+		}
+		
+		if (!closestNode)
+			return null;
+		
+		const dayStorage = this._storage.get(closestNode.key)!;
+		
+		return {
+			at: closestNode.key,
+			items: dayStorage.items.slice(0, dayStorage.count)
+		};
+	}
+	
+	/**
 	 * Gets an array of all dates (as timestamps) that contain items, sorted chronologically.
 	 */
-	getDays(): Midnight[];
+	getDates(): Midnight[];
 	
 	/**
 	 * Gets an array of dates (as timestamps) within a specified range, sorted chronologically.
 	 * @throws {DateError} if the start or end date is invalid.
 	 */
-	getDays(start: RawDate, end: RawDate): Midnight[];
+	getDates(start: RawDate, end: RawDate): Midnight[];
 	
-	getDays(start?: RawDate, end?: RawDate): Midnight[] {
+	getDates(start?: RawDate, end?: RawDate): Midnight[] {
 		if (start !== undefined && end !== undefined) {
 			const startAt = this._resolveTs(start);
 			const endAt = this._resolveTs(end);
 			
 			if (startAt > endAt)
-				return EMPTY_ARRAY as Midnight[];
+				return [] as Midnight[];
 			
-			tempItemBuffer.length = 0;
-			
-			this._dateTree.range(startAt, endAt, node => { tempItemBuffer.push(node.key); });
-			
-			return tempItemBuffer.slice();
+			return [ ...this._rangeKeys(startAt, endAt) ];
 		}
 		
-		return Array.from(this._dateTree.keys());
+		return this._dateTree.keys();
 	}
 	
 	/**

@@ -1,4 +1,4 @@
 export type { DateError } from "./BaseTimeline";
 export * from "./RangeTimeline";
 export * from "./Timeline";
-export type { Midnight, RawDate } from "./types";
+export type { Day, Midnight, Range, RawDate } from "./types";

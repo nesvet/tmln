@@ -14,7 +14,7 @@ Built for speed and ease of use. Perfect for applications like schedulers, calen
 -   🚀 **High Performance**: AVL tree-based implementation for O(log n) operations.
 -   📅 **Two Timeline Types**: Manage items on a single point in time (`Timeline`) or across a date range (`RangeTimeline`).
 -   🎯 **Event-driven Architecture**: Listen to changes on the timeline's boundaries, specific dates, or individual items.
--   🔍 **Flexible Queries**: Get items by date or range, with optional sorting and pagination.
+-   🔍 **Flexible & Rich Queries**: Get items, days, or ranges with advanced options like pagination, sorting, and including empty days.
 -   🧠 **Smart Caching**: Configurable global or local cache for date parsing to boost performance.
 -   🔄 **Batch Operations**: Blazing fast bulk `addMany`, `updateMany`, and `deleteMany` operations.
 -   📦 **Lean & Fully Typed**: A focused library with minimal dependencies, completely type-safe.
@@ -141,14 +141,30 @@ The following members are available on both `Timeline` and `RangeTimeline`.
 | `delete(item)`          | Deletes an item. Returns `true` if deletion was successful.                                                   |
 | `deleteMany(items)`     | Efficiently deletes multiple items. Returns the number of items deleted.                                      |
 | `has(item)`             | Checks if an item exists in the timeline.                                                                     |
+| `find(predicate)`       | Finds the first item that satisfies the predicate function, or `undefined`.                                   |
 | `get(date, options?)`   | Gets an array of items on a specific date.                                                                    |
 | `get(start, end, options?)`| Gets an array of all unique items active within a date range.                                                 |
-| `iterate(date/range)`   | Returns an iterator for items on a date or in a range. More memory-efficient than `.get()` for large sets.    |
+| `getDates(start?, end?)`  | Gets an array of all dates (timestamps) that contain items, sorted chronologically.                           |
+| `getDay(date)`          | Gets a single Day object (`{at, items}`) for a date, or `null` if the day is empty.                           |
+| `getDays(start, end?, options?)` | Gets an array of Day objects within a range. Supports including empty days.                           |
+| `getClosestDay(date, direction?)` | Finds the closest Day with items relative to a date. `direction` can be `before`, `after`, or `either`. |
+| `iterate(date/range)`   | Returns a memory-efficient iterator for items on a date or in a range.                                        |
+| `iterateDays(start, end?, options?)` | Returns a memory-efficient iterator for Day objects.                                            |
 | `clear()`               | Removes all items from the timeline.                                                                          |
+| `isEmpty()`             | Returns `true` if the timeline has no items.                                                                  |
 | `on(event, ...)`        | Subscribes to an event (`bounds`, `date`, or `item`). Returns a `Subscription` object.                          |
 | `once(event, ...)`      | Subscribes to an event for a single invocation.                                                               |
 | `off(event, ...)`       | Unsubscribes a listener.                                                                                      |
-| **`getRange(item)`**    | **(`RangeTimeline` only)** Returns the stored `{ startAt, endAt }` range for an item, or `null`.                |
+
+### `RangeTimeline`-Specific API
+
+| Member                  | Description                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `getRange(item)`        | Returns the stored `{ startAt, endAt }` range for an item, or `null`.                                         |
+| `getStartsOn(date)`     | Gets all items whose range *starts* on the specified date.                                                    |
+| `getEndsOn(date)`       | Gets all items whose range *ends* on the specified date.                                                      |
+| `getRanges(start, end?, options?)` | Retrieves items with their full range and their intersection with the query range.                  |
+| `iterateRanges(...)`    | Returns a memory-efficient iterator for the range objects described above.                                    |
 
 ### Event System
 
@@ -178,6 +194,25 @@ timeline.on("item", myEvent, (event) => {
 timeline.on("bounds", () => {
   console.log(`Timeline bounds changed: ${timeline.startAt} - ${timeline.endAt}`);
 });
+```
+
+### Advanced Queries with `getDays` and `getRanges`
+
+Retrieve structured data, including empty days, perfect for building a calendar UI.
+
+```typescript
+// Get all days in a month, including empty ones
+const calendarDays = timeline.getDays("2025-12-01", "2025-12-31", { includeEmpty: true });
+
+for (const day of calendarDays) {
+  console.log(`Date: ${new Date(day.at).toLocaleDateString()}, Items: ${day.items.length}`);
+}
+
+// For RangeTimeline, get items and how they intersect with a specific week
+const weeklyRanges = rangeTimeline.getRanges("2025-11-17", "2025-11-23");
+for (const r of weeklyRanges) {
+    console.log(`Item ${r.item.id} intersects from ${r.intersection.startAt} to ${r.intersection.endAt}`);
+}
 ```
 
 ### Batch Operations
@@ -213,7 +248,7 @@ const page2 = timeline.get("2025-01-01", "2025-01-31", { ...options, offset: 10 
 
 ## 🔧 Performance
 
-The underlying data structures (AVL tree, hash map) ensure both efficient and predictable performance.
+The underlying data structures (AVL tree, hash map) ensure both efficient and predictable performance. `addMany`, `updateMany`, and `deleteMany` are highly optimized for bulk operations.
 
 -   **Get items (single date)**: `O(k)` where `k` is the number of items on that date.
 -   **Get items (date range)**: `O(log D + M*k)` where `D` is unique days, `M` is days in range.
