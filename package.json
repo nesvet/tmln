@@ -37,8 +37,8 @@
 		"avl": "^2.0.0"
 	},
 	"devDependencies": {
-		"@nesvet/conveyer": "^2.6.4",
 		"@nesvet/eslint-config": "^2.1.2",
+		"cnvr": "^2.7.2",
 		"typescript": "^5.9.2"
 	}
 }

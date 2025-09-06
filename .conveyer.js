@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { Conveyer, ESBuild } from "@nesvet/conveyer";
+import { Conveyer, ESBuild } from "cnvr";
 
 
 const { NODE_ENV } = process.env;
