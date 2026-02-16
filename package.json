@@ -37,8 +37,9 @@
 		"avl": "^2.0.0"
 	},
 	"devDependencies": {
-		"@nesvet/eslint-config": "^2.1.2",
-		"cnvr": "^2.7.2",
-		"typescript": "^5.9.2"
+		"@nesvet/eslint-config": "^2.2.8",
+		"@types/bun": "^1.3.9",
+		"cnvr": "^2.8.8",
+		"typescript": "^5.9.3"
 	}
 }
