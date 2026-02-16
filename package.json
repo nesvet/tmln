@@ -10,10 +10,9 @@
 		"calendar",
 		"events",
 		"gantt",
-		"chronology",
+		"booking",
 		"performance",
-		"fast",
-		"data structure",
+		"data-structure",
 		"lightweight",
 		"in-memory",
 		"typescript"
