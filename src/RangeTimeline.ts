@@ -28,7 +28,7 @@ import type {
 } from "./types";
 
 
-/* eslint-disable @typescript-eslint/no-explicit-any, no-bitwise */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 
 export class RangeTimeline<I extends Item = Item> extends BaseTimeline<I, RangeTimelineEvent<I>> {

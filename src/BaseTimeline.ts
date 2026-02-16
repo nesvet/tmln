@@ -20,7 +20,7 @@ import type {
 } from "./types";
 
 
-/* eslint-disable @typescript-eslint/no-explicit-any, no-bitwise */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 
 export const ONE_DAY = 86_400_000;
