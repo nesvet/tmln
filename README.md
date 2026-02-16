@@ -1,31 +1,20 @@
-# 📅 Timeline
+# tmln
 
+[![CI](https://github.com/nesvet/tmln/actions/workflows/ci.yaml/badge.svg)](https://github.com/nesvet/tmln/actions/workflows/ci.yaml)
 [![npm version](https://img.shields.io/npm/v/tmln?style=flat-square)](https://www.npmjs.com/package/tmln)
 [![bundle size](https://img.shields.io/bundlephobia/minzip/tmln?style=flat-square)](https://bundlephobia.com/result?p=tmln)
 [![npm license](https://img.shields.io/npm/l/tmln?style=flat-square)](https://www.npmjs.com/package/tmln)
 [![typescript](https://img.shields.io/npm/types/tmln?style=flat-square)](#)
 
-High-performance, lightweight, in-memory timeline data structure to manage items on dates and within ranges.
+**High-performance, lightweight in-memory timeline for dates and ranges** — O(log n) queries, event-driven updates, zero date math in your code.
 
-Built for speed and ease of use. Perfect for applications like schedulers, calendars, event managers, or any system that needs to query objects based on their position in time efficiently.
-
-## ✨ Features
-
--   🚀 **High Performance**: AVL tree-based implementation for O(log n) operations.
--   📅 **Two Timeline Types**: Manage items on a single point in time (`Timeline`) or across a date range (`RangeTimeline`).
--   🎯 **Event-driven Architecture**: Listen to changes on the timeline's boundaries, specific dates, or individual items.
--   🔍 **Flexible & Rich Queries**: Get items, days, or ranges with advanced options like pagination, sorting, and including empty days.
--   🧠 **Smart Caching**: Configurable global or local cache for date parsing to boost performance.
--   🔄 **Batch Operations**: Blazing fast bulk `addMany`, `updateMany`, and `deleteMany` operations.
--   📦 **Lean & Fully Typed**: A focused library with minimal dependencies, completely type-safe.
-
-## 🛠️ Installation
+Managing events, tasks, or bookings across dates? Arrays and manual filtering get slow. tmln gives you AVL-tree performance with a simple API.
 
 ```bash
 npm install tmln
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Timeline for Single-Date Items
 
@@ -84,7 +73,31 @@ console.log(activeTasks); // -> [{id: "A", ...}, {id: "B", ...}]
 const overlappingTasks = timeline.get("2025-11-01", "2025-11-16");
 ```
 
-## 🧠 Caching Strategy
+## Use Cases
+
+**→ Schedulers and calendars**  
+Query events by date or range. Pagination, sorting, empty days — one API.
+
+**→ Event managers**  
+Listen to bounds, date, or item changes. Update your UI in real time.
+
+**→ Booking systems**  
+RangeTimeline for reservations. Get overlaps, starts-on, ends-on in O(log n).
+
+**→ Batch sync**  
+`addMany`, `updateMany`, `deleteMany` — bulk operations without loops.
+
+## Features
+
+- **O(log n) queries** — AVL tree-based implementation for predictable performance
+- **Two timeline types** — `Timeline` for single dates, `RangeTimeline` for date ranges
+- **Event-driven** — subscribe to bounds, specific dates, or individual items
+- **Rich queries** — pagination, sorting, include empty days, iterate without allocating
+- **Configurable caching** — global or local date cache to boost parsing performance
+- **Batch operations** — `addMany`, `updateMany`, `deleteMany` for bulk updates
+- **Lean & typed** — minimal dependencies, fully type-safe
+
+## Caching Strategy
 
 To maximize performance, Timeline uses an internal cache for date parsing. By default, all instances share a **global cache**. This is highly efficient if your application creates many timelines that use similar dates.
 
@@ -122,7 +135,17 @@ Timeline.configGlobalCache({
 Timeline.configGlobalCache({ clear: true });
 ```
 
-## 📋 API Reference
+## API Reference
+
+### Exports
+
+- **Classes:** `Timeline`, `RangeTimeline` — implement `Iterable<I>` (for...of, spread)
+- **Error:** `DateError` — thrown when a date argument is invalid (`Date`, `number`, or string not parseable). Methods that accept `RawDate` (`get`, `getDay`, `getClosestDay`, `getDates`, `getDays`, `getRanges`, `iterateRanges`, `iterate`, `iterateDays`, `getStartsOn`, `getEndsOn`) may throw. Use `try/catch` or validate dates before calling. Example: `try { timeline.get("invalid"); } catch (e) { if (e instanceof DateError) { /* handle */ } }`
+- **Types:**
+  - `RawDate` — `Date | number | string` (date input)
+  - `Midnight` — `number` (timestamp at midnight)
+  - `Day<I>` — `{ at: Midnight, items: I[] }`
+  - `Range<I>` — `{ item: I, range: { startAt, endAt }, intersection: { startAt, endAt } }`
 
 ### Common Methods & Properties
 
@@ -150,11 +173,26 @@ The following members are available on both `Timeline` and `RangeTimeline`.
 | `getClosestDay(date, direction?)` | Finds the closest Day with items relative to a date. `direction` can be `before`, `after`, or `either`. |
 | `iterate(date/range)`   | Returns a memory-efficient iterator for items on a date or in a range.                                        |
 | `iterateDays(start, end?, options?)` | Returns a memory-efficient iterator for Day objects.                                            |
+| `entries(sorted?)`     | Returns an iterator for `[Midnight, I[]]` pairs. `sorted: true` yields dates chronologically.                |
+| `for...of`             | Iterable — iterates over all items in the timeline.                                                          |
 | `clear()`               | Removes all items from the timeline.                                                                          |
 | `isEmpty()`             | Returns `true` if the timeline has no items.                                                                  |
-| `on(event, ...)`        | Subscribes to an event (`bounds`, `date`, or `item`). Returns a `Subscription` object.                          |
-| `once(event, ...)`      | Subscribes to an event for a single invocation.                                                               |
+| `on(event, ...)`        | Subscribes to an event (`bounds`, `date`, or `item`). Returns `Subscription` with `unsubscribe()`.            |
+| `once(event, ...)`      | Subscribes for a single invocation. Returns `Subscription` with `unsubscribe()`.                             |
 | `off(event, ...)`       | Unsubscribes a listener.                                                                                      |
+
+### Static Methods
+
+| Member                          | Description                                                                                      |
+| ------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `Timeline.configGlobalCache(options)` | Configures global caches. Options: `{ dateCacheLimit?, dateSetHoursCacheLimit?, clear? }`. See [Caching Strategy](#caching-strategy). |
+| `RangeTimeline.configGlobalCache(options)` | Same as above (inherited from base).                                                             |
+
+### Options
+
+- **`get(date?, options?)` / `get(start, end, options?)`** — `limit`, `offset`, `sorted`
+- **`getDays` / `iterateDays`** — `end`, `includeEmpty`, `limit`, `offset`; on RangeTimeline: + `uniqueOnly`
+- **`getRanges` / `iterateRanges`** — `end`, `limit`, `offset`
 
 ### `RangeTimeline`-Specific API
 
@@ -176,7 +214,7 @@ Subscribe to changes using `on(eventType, ...args)`:
 | `"date"`    | `date`, `listener`                    | `{ type: "date", at: Midnight }`                        |
 | `"item"`    | `item`, `listener`                    | **`Timeline`**:<br />`{ type: "item", item: Item, at: Midnight, prevAt: Midnight \| null }` <br /><br />**`RangeTimeline`**:<br />`{ type: "item", item: Item, startAt: Midnight, endAt: Midnight, prevStartAt: Midnight \| null, prevEndAt: Midnight \| null }` |
 
-## 🎯 Usage Examples
+## Usage Examples
 
 ### Event-driven Updates
 
@@ -246,7 +284,7 @@ const page1 = timeline.get("2025-01-01", "2025-01-31", { ...options, offset: 0 }
 const page2 = timeline.get("2025-01-01", "2025-01-31", { ...options, offset: 10 });
 ```
 
-## 🔧 Performance
+## Performance
 
 The underlying data structures (AVL tree, hash map) ensure both efficient and predictable performance. `addMany`, `updateMany`, and `deleteMany` are highly optimized for bulk operations.
 
@@ -256,10 +294,18 @@ The underlying data structures (AVL tree, hash map) ensure both efficient and pr
 -   **Check for item (`has`)**: `O(1)`.
 -   **Memory Usage**: `O(N + D)` where `N` is total items, `D` is unique days.
 
-## 🤝 Contributing
+## Support this project
 
-Contributions are welcome! Please feel free to open an issue or submit a Pull Request.
+**tmln is free, open-source, and maintained by one developer.**
 
-## 📄 License
+If it saves you time or improves your timeline/scheduler workflow:
+- ⭐ Star the repo — it helps discoverability
+- 💙 Support on [Patreon](https://www.patreon.com/nesvet) — priority features & long-term maintenance
 
-[MIT](./LICENSE)
+## Contributing
+
+Thanks for considering contributing! tmln is maintained by one developer, so community help is valuable. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
+
+[MIT](LICENSE)
